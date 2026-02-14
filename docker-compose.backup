@@ -1,0 +1,166 @@
+version: '3'
+services:
+   namenode:
+      image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+      container_name: namenode
+      volumes:
+         - ./hdfs/namenode:/hadoop/dfs/name
+         - ./data:/data
+      environment:
+         - CLUSTER_NAME=hive
+      env_file:
+         - ./hadoop-hive.env
+      ports:
+         - "9870:9870"
+   datanode:
+      image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+      container_name: datanode
+      volumes:
+         - ./hdfs/datanode:/hadoop/dfs/data
+      env_file:
+         - ./hadoop-hive.env
+      environment:
+         SERVICE_PRECONDITION: "namenode:50070"
+      depends_on:
+         - namenode
+      ports:
+         - "9875:9875"
+   hive-server:
+      image: bde2020/hive:2.3.2-postgresql-metastore
+      container_name: hive-server
+      volumes:
+         - ./data:/data
+      env_file:
+         - ./hadoop-hive.env
+      environment:
+         HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
+         SERVICE_PRECONDITION: "hive-metastore:9083"
+      depends_on:
+         - hive-metastore
+      ports:
+         - "10000:10000"
+   
+   hive-metastore:
+      image: bde2020/hive:2.3.2-postgresql-metastore
+      container_name: hive-metastore
+      env_file:
+         - ./hadoop-hive.env
+      command: /opt/hive/bin/hive --service metastore
+      environment:
+         SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432"
+      depends_on:
+         - hive-metastore-postgresql
+      ports:
+         - "9083:9083"
+   hive-metastore-postgresql:
+      image: bde2020/hive-metastore-postgresql:2.3.0
+      container_name: hive-metastore-postgresql
+      volumes:
+         - ./metastore-postgresql/postgresql/data:/var/lib/postgresql/data
+      depends_on:
+         - datanode
+   spark-master:
+      build:
+         context: .
+         dockerfile: Dockerfile.spark
+      container_name: spark-master
+      environment:
+         - INIT_DAEMON_STEP=setup_spark
+         - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+         - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+      ports:
+         - "8080:8080"
+         - "7077:7077"
+      depends_on:
+         - namenode
+      volumes:
+         - ./hive-site.xml:/spark/conf/hive-site.xml
+         - ./jobs:/jobs
+
+   spark-worker:
+      image: bde2020/spark-worker:2.4.5-hadoop2.7
+      container_name: spark-worker
+      environment:
+         - SPARK_MASTER=spark://spark-master:7077
+         - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+         - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+      depends_on:
+         - spark-master
+      volumes:
+         - ./hive-site.xml:/spark/conf/hive-site.xml
+
+   airflow-postgres:
+      image: postgres:13
+      container_name: airflow-postgres
+      environment:
+         POSTGRES_USER: airflow
+         POSTGRES_PASSWORD: airflow
+         POSTGRES_DB: airflow
+      volumes:
+         - ./airflow/postgres:/var/lib/postgresql/data
+
+   airflow-webserver:
+      build:
+         context: ./airflow
+         dockerfile: Dockerfile.airflow
+      container_name: airflow-webserver
+      depends_on:
+         - airflow-init
+      environment:
+         - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+         - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+         - AIRFLOW__CORE__LOAD_EXAMPLES=False
+         - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+      volumes:
+         - ./airflow/dags:/opt/airflow/dags
+         - ./data:/data
+         - /var/run/docker.sock:/var/run/docker.sock
+         - ./jobs:/jobs
+      ports:
+         - "8088:8080"
+      command: webserver
+
+   airflow-scheduler:
+      build:
+         context: ./airflow
+         dockerfile: Dockerfile.airflow
+      container_name: airflow-scheduler
+      depends_on:
+         - airflow-webserver
+      environment:
+         - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+         - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+         - AIRFLOW__CORE__LOAD_EXAMPLES=False
+         - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+      volumes:
+         - ./airflow/dags:/opt/airflow/dags
+         - ./data:/data
+         - /var/run/docker.sock:/var/run/docker.sock
+         - ./jobs:/jobs
+      command: scheduler
+
+   airflow-init:
+      container_name: airflow-init
+      image: apache/airflow:2.9.1
+      depends_on:
+         - airflow-postgres
+      environment:
+         - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+         - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      command:
+         - bash
+         - -c
+         - |
+            airflow db migrate &&
+            airflow users create \
+            --username admin \
+            --password admin \
+            --firstname Admin \
+            --lastname User \
+            --role Admin \
+            --email admin@example.com
+
+
+
+
+
