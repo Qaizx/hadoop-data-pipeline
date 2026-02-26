@@ -40,6 +40,7 @@ airflow/postgres/
 
 # Docker
 .dockerignore
+docker-compose.backup
 
 # Logs
 *.log
@@ -61,13 +62,16 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-Environment variables (uncomment if you have sensitive data)
+# Environment variables
 .env
 *.env
 
-Streamlit configuration (uncomment if you have Streamlit config files)
-*.toml
+# Secrets
+dashboard/.streamlit/*.toml
 
+# Data files
+data/*.csv
+data/*.xlsx
 
-# Data files (uncomment if large datasets)
-# data/
+# App runtime state
+dashboard/chat_history.json
