@@ -22,6 +22,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+dashboard/config.py
 
 # Virtual Environment
 .venv/
@@ -63,6 +64,10 @@ Thumbs.db
 Environment variables (uncomment if you have sensitive data)
 .env
 *.env
+
+Streamlit configuration (uncomment if you have Streamlit config files)
+*.toml
+
 
 # Data files (uncomment if large datasets)
 # data/

@@ -103,8 +103,8 @@ df_long = df_wide.select(
     expr(f"stack({n_cols}, {stack_expr}) as (category, amount)")
 )
 
-# Clean data - ลบ rows ที่ amount เป็น null หรือ 0
-df_long = df_long.filter(col("amount").isNotNull() & (col("amount") != 0))
+# Clean data - ลบ rows ที่ amount เป็น null
+df_long = df_long.filter(col("amount").isNotNull())
 
 print(f"\n📊 Long format:")
 print(f"   Rows: {df_long.count()}, Columns: {len(df_long.columns)}")

@@ -1,0 +1,23 @@
+# config.py
+HISTORY_FILE = "chat_history.json"
+MAX_HISTORY = 50
+HIVE_DATABASE = "default"
+GPT_MODEL = "gpt-4o-mini"
+
+CATEGORY_MAPPING = """
+Mapping ชื่อภาษาไทย → ชื่อ column ในฐานข้อมูล (ใช้ชื่อ column ใน SQL เสมอ):
+
+"""
+
+TABLE_SCHEMA = f"""
+Table: 
+Columns:
+-
+
+{CATEGORY_MAPPING}
+
+กฎที่ต้องปฏิบัติตามเสมอ:
+
+ตัวอย่าง Query ที่ถูกต้อง:
+
+"""

@@ -2,19 +2,25 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 from pyhive import hive
-import pandas as pd  # เพิ่ม
+import pandas as pd
 
 load_dotenv()
 
 # ตั้งค่า OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ตั้งค่า Hive connection
-hive_conn = hive.Connection(
-    host="localhost",
-    port=10000,
-    database="default",
-)
+# Config สำหรับ Hive (ไม่สร้าง connection ตอน import)
+HIVE_HOST = os.getenv("HIVE_HOST", "localhost")
+HIVE_PORT = int(os.getenv("HIVE_PORT", 10000))
+HIVE_DATABASE = "default"
+
+def get_hive_connection():
+    """สร้าง Hive connection ตอนใช้งาน"""
+    return hive.Connection(
+        host=HIVE_HOST,
+        port=HIVE_PORT,
+        database=HIVE_DATABASE,
+    )
 
 # บอก GPT เกี่ยวกับ schema ของ table
 TABLE_SCHEMA = """
@@ -66,17 +72,22 @@ def ask_gpt_for_sql(user_question: str) -> str:
 
 def execute_query(sql: str):
     """รัน SQL query บน Hive แล้ว return list"""
-    cursor = hive_conn.cursor()
+    conn = get_hive_connection()
+    cursor = conn.cursor()
     cursor.execute(sql)
-    return cursor.fetchall()
+    result = cursor.fetchall()
+    conn.close()
+    return result
 
 def execute_query_df(sql: str) -> pd.DataFrame:
     """รัน SQL query บน Hive แล้ว return DataFrame"""
-    cursor = hive_conn.cursor()
+    conn = get_hive_connection()
+    cursor = conn.cursor()
     cursor.execute(sql)
     
     columns = [desc[0] for desc in cursor.description]
     data = cursor.fetchall()
+    conn.close()
     
     return pd.DataFrame(data, columns=columns)
 
@@ -114,18 +125,14 @@ def suggest_chart_type(question: str, df: pd.DataFrame) -> str:
     
     return response.choices[0].message.content.strip().lower()
 
-# ============ Main ============
 def chat_with_data(question: str):
+    """ถามคำถามแล้ว print ผลลัพธ์"""
     print(f"📝 คำถาม: {question}\n")
     
-    # 1. แปลงเป็น SQL
     sql = ask_gpt_for_sql(question)
-    
-    # 2. รัน query
     results = execute_query(sql)
-    
-    # 3. สรุปผล
     summary = ask_gpt_to_summarize(question, sql, results)
+    
     print(f"💬 คำตอบ: {summary}")
 
 def chat_with_data_full(question: str) -> dict:
@@ -147,4 +154,3 @@ def chat_with_data_full(question: str) -> dict:
 # ทดสอบ
 if __name__ == "__main__":
     chat_with_data("งบการเงินปี 2024 นี้ใช้ไปเท่าไร")
-    chat_with_data("เปรียบเทียบค่าใช้จ่ายแต่ละหมวดหมู่ในปี 2024")

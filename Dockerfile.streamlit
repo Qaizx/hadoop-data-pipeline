@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install Python dependencies (ไม่ใช้ sasl)
+RUN pip install --no-cache-dir \
+    streamlit \
+    plotly \
+    pandas \
+    pyhive \
+    thrift \
+    thrift-sasl \
+    pure-sasl \
+    python-dotenv \
+    openai
+
+# Expose port
+EXPOSE 8501
+
+# Run streamlit
+CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
