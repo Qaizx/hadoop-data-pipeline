@@ -19,8 +19,8 @@ with DAG(
     run_pipeline = BashOperator(
         task_id="run_spark_pipeline",
         bash_command="""
-        docker exec spark-master spark-submit /jobs/finance_pipeline.py
+        docker exec spark-master spark-submit /jobs/finance_itsc_pipeline.py
         """,
     )
 
-    wait_for_file >> run_pipeline
+    run_pipeline

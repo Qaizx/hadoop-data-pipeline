@@ -78,7 +78,7 @@ value_cols = [
 ]
 
 # Build stack expression
-stack_expr = "stack({}, {}) as (account_name, amount)".format(
+stack_expr = "stack({}, {}) as (category, amount)".format(
     len(value_cols),
     ",".join(["'{}', {}".format(c, c) for c in value_cols])
 )

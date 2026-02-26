@@ -159,6 +159,23 @@ services:
             --lastname User \
             --role Admin \
             --email admin@example.com
+   spark-thrift:
+      image: apache/spark:3.5.1
+      container_name: spark-thrift
+      command: >
+         /opt/spark/sbin/start-thriftserver.sh
+         --master local[*]
+         --conf spark.sql.catalogImplementation=hive
+         --hiveconf hive.metastore.uris=thrift://hive-metastore:9083
+      ports:
+         - "10001:10000"
+      depends_on:
+         - hive-metastore
+      volumes:
+         - ./hive-site.xml:/opt/spark/conf/hive-site.xml
+
+
+
 
 
 

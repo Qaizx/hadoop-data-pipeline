@@ -60,9 +60,9 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-# Environment variables (uncomment if you have sensitive data)
-# .env
-# *.env
+Environment variables (uncomment if you have sensitive data)
+.env
+*.env
 
 # Data files (uncomment if large datasets)
 # data/
