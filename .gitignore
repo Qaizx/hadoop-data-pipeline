@@ -75,3 +75,7 @@ data/*.xlsx
 
 # App runtime state
 dashboard/chat_history.json
+
+# SSL Certificates (if used for local development)
+certs/server.key
+certs/server.crt
