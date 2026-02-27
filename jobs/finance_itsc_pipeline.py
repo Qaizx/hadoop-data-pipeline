@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, input_file_name, regexp_extract, expr
+from pyspark.sql.functions import col, lit, regexp_extract, input_file_name, expr
+import subprocess
+from typing import List, Dict, Optional
 
 spark = SparkSession.builder \
     .appName("Finance ITSC ETL") \
     .enableHiveSupport() \
     .getOrCreate()
+
+sc = spark.sparkContext
 
 # ===== Config =====
 raw_path = "hdfs://namenode:8020/datalake/raw/finance-itsc"
@@ -15,50 +19,120 @@ wide_table = "finance_itsc_wide"
 long_table = "finance_itsc_long"
 database_name = "default"
 
+
 # ============================================================
-# PART 1: Raw -> Staging (Wide)
+# Helper: HDFS utils ใช้ Spark FileSystem API
+# ============================================================
+
+def get_fs():
+    """ดึง Hadoop FileSystem object"""
+    uri = sc._jvm.java.net.URI.create(raw_path)
+    conf = sc._jsc.hadoopConfiguration()
+    return sc._jvm.org.apache.hadoop.fs.FileSystem.get(uri, conf)
+
+
+def hdfs_ls_recursive(path: str) -> List[str]:
+    """List ไฟล์ทั้งหมดใน path แบบ recursive"""
+    fs = get_fs()
+    hadoop_path = sc._jvm.org.apache.hadoop.fs.Path(path)
+    
+    if not fs.exists(hadoop_path):
+        return []
+    
+    files = []
+    iterator = fs.listFiles(hadoop_path, True)  # recursive=True
+    while iterator.hasNext():
+        status = iterator.next()
+        files.append(status.getPath().toString())
+    return files
+
+
+def hdfs_exists(path: str) -> bool:
+    fs = get_fs()
+    return fs.exists(sc._jvm.org.apache.hadoop.fs.Path(path))
+
+
+def hdfs_touch(path: str):
+    """สร้าง marker file เปล่า"""
+    fs = get_fs()
+    hadoop_path = sc._jvm.org.apache.hadoop.fs.Path(path)
+    fs.create(hadoop_path).close()
+    print(f"   ✅ Marker created: {path}")
+
+
+def extract_year_from_path(path: str) -> Optional[int]:
+    import re
+    m = re.search(r"year=(\d{4})", path)
+    return int(m.group(1)) if m else None
+
+
+# ============================================================
+# PART 1: Raw -> Staging (Wide) — Incremental
 # ============================================================
 print("=" * 60)
-print("PART 1: Raw -> Staging (Wide)")
+print("PART 1: Raw -> Staging (Wide) — Incremental")
 print("=" * 60)
 
-print(f"\n📖 Reading from: {raw_path}")
+all_files = hdfs_ls_recursive(raw_path)
 
-df = spark.read \
-    .option("header", "true") \
-    .option("inferSchema", "true") \
-    .option("basePath", raw_path) \
-    .csv(f"{raw_path}/year=*")
+csv_files = [f for f in all_files if f.endswith(".csv")]
+done_files = set(f for f in all_files if f.endswith(".done"))
 
-# ดึง year จาก path ถ้ายังไม่มี column year
-if "year" not in df.columns:
-    df = df.withColumn(
-        "year",
-        regexp_extract(input_file_name(), r"year=(\d+)", 1).cast("int")
-    )
+pending_files = [f for f in csv_files if f + ".done" not in done_files]
 
-print(f"   Rows: {df.count()}, Columns: {len(df.columns)}")
-print(f"   Years: {[r.year for r in df.select('year').distinct().collect()]}")
+print(f"\n📁 CSV files found   : {len(csv_files)}")
+print(f"✅ Already processed : {len(csv_files) - len(pending_files)}")
+print(f"🆕 Pending files     : {len(pending_files)}")
 
-# Cast columns ให้ถูกต้อง
-for c in df.columns:
-    if c in ['date', 'details']:
-        df = df.withColumn(c, col(c).cast("string"))
-    elif c == 'year':
-        df = df.withColumn(c, col(c).cast("int"))
-    else:
-        df = df.withColumn(c, col(c).cast("double"))
+if not pending_files:
+    print("\n⏭️  No new files to process. Skipping Part 1.")
+    pending_by_year: Dict[int, List[str]] = {}
+else:
+    pending_by_year = {}
+    for f in pending_files:
+        year = extract_year_from_path(f)
+        if year:
+            pending_by_year.setdefault(year, []).append(f)
+        else:
+            print(f"   ⚠️  Cannot extract year from: {f} — skipping")
 
-# เขียนไป staging พร้อม partition by year
-print(f"\n📝 Writing to: {staging_path}")
+    print(f"\n📅 Years to update: {sorted(pending_by_year.keys())}")
 
-df.write \
-    .mode("overwrite") \
-    .partitionBy("year") \
-    .option("path", staging_path) \
-    .saveAsTable(f"{database_name}.{wide_table}")
+    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 
-print(f"\n✅ Wide table done!")
+    for year, files in sorted(pending_by_year.items()):
+        print(f"\n🔄 Processing year={year} ({len(files)} file(s))")
+
+        df = spark.read \
+            .option("header", "true") \
+            .option("inferSchema", "true") \
+            .csv(files)
+
+        df = df.withColumn("year", lit(year).cast("int"))
+
+        for c in df.columns:
+            if c in ["date", "details"]:
+                df = df.withColumn(c, col(c).cast("string"))
+            elif c == "year":
+                pass
+            else:
+                df = df.withColumn(c, col(c).cast("double"))
+
+        print(f"   Rows: {df.count()}")
+
+        df.write \
+            .mode("overwrite") \
+            .partitionBy("year") \
+            .option("path", staging_path) \
+            .saveAsTable(f"{database_name}.{wide_table}")
+
+        print(f"   ✅ Written to wide table partition year={year}")
+
+        for f in files:
+            hdfs_touch(f + ".done")
+
+print(f"\n✅ Part 1 done!")
+
 
 # ============================================================
 # PART 2: Staging (Wide) -> Curated (Long)
@@ -67,106 +141,54 @@ print("\n" + "=" * 60)
 print("PART 2: Staging (Wide) -> Curated (Long)")
 print("=" * 60)
 
-print(f"\n📖 Reading from: {database_name}.{wide_table}")
-df_wide = spark.sql(f"SELECT * FROM {database_name}.{wide_table}")
+years_to_update = sorted(pending_by_year.keys()) if pending_files else []
 
-# ===== กรองข้อมูล =====
-print(f"\n🔍 Before filter: {df_wide.count()} rows")
+if not years_to_update:
+    print("\n⏭️  No new data. Skipping Part 2.")
+else:
+    print(f"\n📅 Years to update in long table: {years_to_update}")
 
-# แสดง date ทั้งหมดก่อน filter
-print("   Unique dates:")
-df_wide.select("date").distinct().show(truncate=False)
+    id_columns = ["date", "details", "year"]
+    exclude_columns = ["total_amount"]
 
-# กรองเฉพาะ date ที่เป็นรูปแบบ YYYY-MM (เช่น 2023-10, 2024-01)
-df_wide = df_wide.filter(
-    col("date").rlike(r"^\d{4}-\d{2}$") | 
-    (col("date") == "all-year-budget")
-)
+    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 
-print(f"   After filter: {df_wide.count()} rows")
+    for year in years_to_update:
+        print(f"\n🔄 Converting year={year} wide -> long")
 
-# หา columns ที่เป็น amount
-id_columns = ['date', 'details', 'year']
-exclude_columns = ['total_amount']  # columns ที่ไม่ต้องการ
-amount_columns = [c for c in df_wide.columns if c not in id_columns and c not in exclude_columns]
+        df_wide = spark.sql(f"""
+            SELECT * FROM {database_name}.{wide_table}
+            WHERE year = {year}
+        """)
 
-print(f"   ID columns: {id_columns}")
-print(f"   Excluded columns: {exclude_columns}")
-print(f"   Amount columns: {len(amount_columns)}")
+        df_wide = df_wide.filter(
+            col("date").rlike(r"^\d{4}-\d{2}$") |
+            (col("date") == "all-year-budget")
+        )
 
-# Unpivot (wide to long)
-stack_expr = ", ".join([f"'{c}', `{c}`" for c in amount_columns])
-n_cols = len(amount_columns)
+        amount_columns = [
+            c for c in df_wide.columns
+            if c not in id_columns and c not in exclude_columns
+        ]
 
-df_long = df_wide.select(
-    *id_columns,
-    expr(f"stack({n_cols}, {stack_expr}) as (category, amount)")
-)
+        print(f"   Amount columns: {len(amount_columns)}")
 
-# Clean data - ลบ rows ที่ amount เป็น null
-df_long = df_long.filter(col("amount").isNotNull())
+        stack_expr = ", ".join([f"'{c}', `{c}`" for c in amount_columns])
+        n_cols = len(amount_columns)
 
-print(f"\n📊 Long format:")
-print(f"   Rows: {df_long.count()}, Columns: {len(df_long.columns)}")
+        df_long = df_wide.select(
+            *id_columns,
+            expr(f"stack({n_cols}, {stack_expr}) as (category, amount)")
+        ).filter(col("amount").isNotNull())
 
-# เขียนไป curated
-print(f"\n📝 Writing to: {curated_path}")
+        print(f"   Long rows: {df_long.count()}")
 
-df_long.write \
-    .mode("overwrite") \
-    .partitionBy("year") \
-    .option("path", curated_path) \
-    .saveAsTable(f"{database_name}.{long_table}")
+        df_long.write \
+            .mode("overwrite") \
+            .partitionBy("year") \
+            .option("path", curated_path) \
+            .saveAsTable(f"{database_name}.{long_table}")
 
-print(f"\n✅ Long table done!")
-
-# ============================================================
-# PART 3: Testing
-# ============================================================
-print("\n" + "=" * 60)
-print("PART 3: Testing")
-print("=" * 60)
-
-print(f"\n🔍 Check details values:")
-spark.sql(f"""
-    SELECT details, COUNT(*) as cnt 
-    FROM {database_name}.{long_table} 
-    GROUP BY details
-""").show()
-
-print(f"\n🔍 Check date values:")
-spark.sql(f"""
-    SELECT date, COUNT(*) as cnt 
-    FROM {database_name}.{long_table} 
-    GROUP BY date 
-    ORDER BY date
-""").show()
-
-print(f"\n🔍 Total spent:")
-spark.sql(f"""
-    SELECT SUM(amount) as total_spent
-    FROM {database_name}.{long_table}
-    WHERE details = 'spent' AND year = 2024
-""").show()
-
-print(f"\n🔍 Total budget:")
-spark.sql(f"""
-    SELECT SUM(amount) as total_budget
-    FROM {database_name}.{long_table}
-    WHERE details = 'budget' AND year = 2024
-""").show()
-
-print(f"\n📈 Budget vs Spent by month:")
-spark.sql(f"""
-    SELECT 
-        date,
-        SUM(CASE WHEN details = 'budget' THEN amount ELSE 0 END) as budget,
-        SUM(CASE WHEN details = 'spent' THEN amount ELSE 0 END) as spent,
-        SUM(CASE WHEN details = 'remaining' THEN amount ELSE 0 END) as remaining
-    FROM {database_name}.{long_table}
-    WHERE year = 2024
-    GROUP BY date
-    ORDER BY date
-""").show()
+        print(f"   ✅ Long table partition year={year} updated")
 
 print("\n✅ ETL Pipeline completed!")

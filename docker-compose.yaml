@@ -68,6 +68,8 @@ services:
          - INIT_DAEMON_STEP=setup_spark
          - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
          - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+         - PYSPARK_PYTHON=python3
+         - PYSPARK_DRIVER_PYTHON=python3
       ports:
          - "8080:8080"
          - "7077:7077"
@@ -84,6 +86,8 @@ services:
          - SPARK_MASTER=spark://spark-master:7077
          - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
          - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+         - PYSPARK_PYTHON=python3
+         - PYSPARK_DRIVER_PYTHON=python3
       depends_on:
          - spark-master
       volumes:
@@ -111,6 +115,14 @@ services:
          - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
          - AIRFLOW__CORE__LOAD_EXAMPLES=False
          - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+         # SMTP for email alerts
+         - AIRFLOW__SMTP__SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+         - AIRFLOW__SMTP__SMTP_PORT=${SMTP_PORT:-587}
+         - AIRFLOW__SMTP__SMTP_STARTTLS=True
+         - AIRFLOW__SMTP__SMTP_SSL=False
+         - AIRFLOW__SMTP__SMTP_USER=${SMTP_USER}
+         - AIRFLOW__SMTP__SMTP_PASSWORD=${SMTP_PASSWORD}
+         - AIRFLOW__SMTP__SMTP_MAIL_FROM=${SMTP_USER}
       volumes:
          - ./airflow/dags:/opt/airflow/dags
          - ./data:/data
@@ -132,6 +144,14 @@ services:
          - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
          - AIRFLOW__CORE__LOAD_EXAMPLES=False
          - AIRFLOW__WEBSERVER__SECRET_KEY=dc42cf13f85423e84083e527f2be293a75fd0a170d78ff83e976933365cdd896
+         # SMTP for email alerts
+         - AIRFLOW__SMTP__SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+         - AIRFLOW__SMTP__SMTP_PORT=${SMTP_PORT:-587}
+         - AIRFLOW__SMTP__SMTP_STARTTLS=True
+         - AIRFLOW__SMTP__SMTP_SSL=False
+         - AIRFLOW__SMTP__SMTP_USER=${SMTP_USER}
+         - AIRFLOW__SMTP__SMTP_PASSWORD=${SMTP_PASSWORD}
+         - AIRFLOW__SMTP__SMTP_MAIL_FROM=${SMTP_USER}
       volumes:
          - ./airflow/dags:/opt/airflow/dags
          - ./data:/data
