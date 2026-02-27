@@ -1,6 +1,8 @@
 # services/hive_gpt.py
 import os
+import re
 import pandas as pd
+import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 from pyhive import hive
@@ -17,16 +19,10 @@ HIVE_PORT = int(os.getenv("HIVE_PORT", 10000))
 # ===== Hive =====
 
 def get_hive_connection():
-    """สร้าง Hive connection"""
-    return hive.Connection(
-        host=HIVE_HOST,
-        port=HIVE_PORT,
-        database=HIVE_DATABASE,
-    )
+    return hive.Connection(host=HIVE_HOST, port=HIVE_PORT, database=HIVE_DATABASE)
 
 
 def execute_query(sql: str) -> list:
-    """รัน SQL query แล้ว return list"""
     conn = get_hive_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -36,7 +32,6 @@ def execute_query(sql: str) -> list:
 
 
 def execute_query_df(sql: str) -> pd.DataFrame:
-    """รัน SQL query แล้ว return DataFrame"""
     conn = get_hive_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -46,24 +41,42 @@ def execute_query_df(sql: str) -> pd.DataFrame:
     return pd.DataFrame(data, columns=columns)
 
 
-# ===== GPT =====
+# ===== SQL Utils =====
 
 def fix_hive_reserved_keywords(sql: str) -> str:
-    """Post-process SQL จาก GPT: ครอบ reserved keywords ด้วย backtick"""
-    import re
     sql = re.sub(r'(?<!`)\bdate\b(?!`)', '`date`', sql)
     return sql
 
 
 def has_bad_remaining_sum(sql: str) -> bool:
-    """ตรวจว่า SQL มี SUM(CASE WHEN details='remaining') ซึ่งผิดหลักการ"""
-    import re
-    pattern = r'SUM\s*\(\s*CASE\s+WHEN\s+\S*details\S*\s*=\s*['"`]remaining['"']'
+    pattern = r'SUM\s*\(\s*CASE\s+WHEN\s+\S*details\S*\s*=\s*[\'"`]remaining[\'"`]'
     return bool(re.search(pattern, sql, re.IGNORECASE))
 
 
+def _clean_sql(sql: str) -> str:
+    """ทำความสะอาด SQL จาก GPT output"""
+    if sql.startswith("```"):
+        lines = sql.split("\n")
+        lines = [l for l in lines if not l.startswith("```")]
+        sql = "\n".join(lines).strip()
+    sql = sql.replace("\u2018", "'").replace("\u2019", "'")
+    sql = sql.replace("\u201c", '"').replace("\u201d", '"')
+    sql = sql.rstrip(";")
+    return fix_hive_reserved_keywords(sql)
+
+
+def _get_year_context() -> str:
+    """ดึง year context จาก session_state สำหรับใส่ใน prompt"""
+    selected_year = st.session_state.get("selected_year", 2024)
+    return f"""ปีงบประมาณที่ user เลือกอยู่ตอนนี้: {selected_year}
+- ถ้าคำถามไม่ระบุปี ให้ใช้ year = {selected_year} เสมอ
+- ถ้าคำถามถามเปรียบเทียบหลายปี เช่น "ปี 2022 vs 2023" ให้ใช้ WHERE year IN (2022, 2023)"""
+
+
+# ===== GPT =====
+
 def ask_gpt_for_sql(user_question: str) -> str:
-    """แปลงคำถามภาษาไทยเป็น HiveQL"""
+    year_context = _get_year_context()
     response = client.chat.completions.create(
         model=GPT_MODEL,
         messages=[
@@ -74,40 +87,21 @@ def ask_gpt_for_sql(user_question: str) -> str:
 
 {TABLE_SCHEMA}
 
+{year_context}
+
 ข้อห้ามเด็ดขาด:
 - ห้าม SUM(amount) WHERE details = 'remaining' ข้ามหลายเดือน
 - หากคำถามถามเรื่อง "ยอดคงเหลือ" หรือ "remaining" ให้ดึงเฉพาะเดือนล่าสุดเสมอ
 
-ตอบเฉพาะ SQL query เท่านั้น ไม่ต้องอธิบาย ไม่ต้องใส่ markdown code block
-ใช้ syntax ของ HiveQL"""
+ตอบเฉพาะ SQL query เท่านั้น ไม่ต้องอธิบาย ไม่ต้องใส่ markdown code block"""
             },
             {"role": "user", "content": user_question}
         ]
     )
-
-    sql = response.choices[0].message.content.strip()
-
-    # ลบ markdown code block
-    if sql.startswith("```"):
-        lines = sql.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
-        sql = "\n".join(lines).strip()
-
-    # แปลง smart quotes เป็น straight quotes
-    sql = sql.replace("\u2018", "'").replace("\u2019", "'")
-    sql = sql.replace("\u201c", '"').replace("\u201d", '"')
-
-    # ลบ ; ตัวสุดท้าย
-    sql = sql.rstrip(";")
-
-    # post-process: แก้ reserved keywords ที่ GPT มักลืม
-    sql = fix_hive_reserved_keywords(sql)
-
-    return sql
+    return _clean_sql(response.choices[0].message.content.strip())
 
 
 def ask_gpt_to_summarize(question: str, sql: str, results) -> str:
-    """สรุปผลลัพธ์เป็นภาษาไทย"""
     response = client.chat.completions.create(
         model=GPT_MODEL,
         messages=[
@@ -118,27 +112,19 @@ def ask_gpt_to_summarize(question: str, sql: str, results) -> str:
 {CATEGORY_MAPPING}
 ห้ามใช้ชื่อ column ภาษาอังกฤษในคำตอบ ให้ใช้ชื่อภาษาไทยแทนเสมอ"""
             },
-            {"role": "user", "content": f"""คำถาม: {question}
-
-SQL ที่ใช้: {sql}
-
-ผลลัพธ์: {results}
-
-กรุณาสรุปคำตอบเป็นภาษาไทยให้เข้าใจง่าย"""}
+            {"role": "user", "content": f"คำถาม: {question}\nSQL: {sql}\nผลลัพธ์: {results}\nกรุณาสรุปเป็นภาษาไทย"}
         ]
     )
     return response.choices[0].message.content.strip()
 
 
 def suggest_chart_type(question: str, df: pd.DataFrame) -> str:
-    """แนะนำประเภท chart ที่เหมาะสม"""
     response = client.chat.completions.create(
         model=GPT_MODEL,
         messages=[
             {
                 "role": "system",
-                "content": """วิเคราะห์คำถามและข้อมูล แล้วแนะนำประเภท chart ที่เหมาะสม
-ตอบเพียงคำเดียว: bar, line, pie, none"""
+                "content": "วิเคราะห์คำถามและข้อมูล แล้วแนะนำประเภท chart ที่เหมาะสม\nตอบเพียงคำเดียว: bar, line, pie, none"
             },
             {"role": "user", "content": f"คำถาม: {question}\nColumns: {df.columns.tolist()}\nRows: {len(df)}"}
         ]
@@ -146,10 +132,7 @@ def suggest_chart_type(question: str, df: pd.DataFrame) -> str:
     return response.choices[0].message.content.strip().lower()
 
 
-# ===== Main function =====
-
 def fix_sql_with_error(sql: str, error_msg: str, question: str) -> str:
-    """ให้ GPT แก้ SQL เมื่อ Hive error"""
     response = client.chat.completions.create(
         model=GPT_MODEL,
         messages=[
@@ -157,38 +140,21 @@ def fix_sql_with_error(sql: str, error_msg: str, question: str) -> str:
                 "role": "system",
                 "content": f"""คุณเป็น HiveQL expert ช่วยแก้ SQL query ที่ error
 {TABLE_SCHEMA}
-ตอบเฉพาะ SQL query ที่แก้แล้วเท่านั้น ไม่ต้องอธิบาย"""
+ตอบเฉพาะ SQL query ที่แก้แล้วเท่านั้น"""
             },
-            {"role": "user", "content": f"""คำถาม: {question}
-
-SQL ที่ error:
-{sql}
-
-Error message:
-{error_msg}
-
-กรุณาแก้ SQL ให้ถูกต้อง"""}
+            {"role": "user", "content": f"คำถาม: {question}\nSQL:\n{sql}\nError:\n{error_msg}\nกรุณาแก้ SQL"}
         ]
     )
-    fixed = response.choices[0].message.content.strip()
-    if fixed.startswith("```"):
-        lines = fixed.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
-        fixed = "\n".join(lines).strip()
-    fixed = fixed.rstrip(";")
-    return fix_hive_reserved_keywords(fixed)
+    return _clean_sql(response.choices[0].message.content.strip())
 
 
 def chat_with_data_full(question: str) -> dict:
-    """ถามคำถามแล้ว return ผลลัพธ์ทั้งหมด (สำหรับ Dashboard)"""
     sql = ask_gpt_for_sql(question)
 
-    # ถ้า GPT ใช้ SUM(CASE WHEN remaining) ให้บังคับ rewrite ทันที
     if has_bad_remaining_sum(sql):
-        error_hint = "ข้อผิดพลาด: คุณใช้ SUM(CASE WHEN details='remaining') ซึ่งผิดหลักการ เพราะ remaining คือ running balance ไม่ใช่ยอดต่อเดือน กรุณาเขียน query ใหม่โดยใช้ JOIN กับ subquery MAX(`date`) แทน ห้ามใช้ SUM กับ remaining เด็ดขาด"
+        error_hint = "ข้อผิดพลาด: ห้ามใช้ SUM(CASE WHEN details='remaining') ให้ใช้ JOIN กับ subquery MAX(`date`) แทน"
         sql = fix_sql_with_error(sql, error_hint, question)
 
-    # retry ถ้า Hive error (สูงสุด 2 ครั้ง)
     df = None
     last_error = None
     for attempt in range(3):
