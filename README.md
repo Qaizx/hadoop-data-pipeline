@@ -1,126 +1,167 @@
-# Hadoop Data Pipeline Project
+# Finance ITSC Dashboard
 
-A comprehensive data processing pipeline using Hadoop, Hive, Spark, and Apache Airflow for financial data analysis.
+ระบบ Data Lake และ Dashboard สำหรับวิเคราะห์งบประมาณ ITSC มหาวิทยาลัยเชียงใหม่
 
-## Project Overview
+## Architecture
 
-This project implements a complete big data processing pipeline for financial data analysis. It includes:
+```
+Excel/CSV → HDFS (Raw) → Spark ETL → Hive (Staging/Curated) → Streamlit Dashboard
+                                                                      ↑
+                                                               GPT (NLP Query)
+```
 
-- **Apache Hadoop/HDFS** for distributed storage
-- **Apache Hive** for data warehousing and SQL queries  
-- **Apache Spark** for large-scale data processing
-- **Apache Airflow** for workflow orchestration
-- **Docker Compose** for containerized deployment
-
-## Architecture Components
-
-### Core Services
-- **Hadoop NameNode & DataNode**: Distributed file system
-- **Hive Metastore**: Schema management for data warehouse
-- **Apache Airflow**: Workflow scheduling and monitoring
-- **PostgreSQL**: Metadata storage for Hive and Airflow
-
-### Data Processing
-- **Finance Pipeline**: Processes financial data from 2023-2025
-- **HDFS API**: Python interface for Hadoop file operations
-- **Hive Integration**: SQL queries on distributed datasets
+**Stack**
+- **Data Lake**: Hadoop HDFS + Hive Metastore
+- **ETL**: Apache Spark (PySpark)
+- **Orchestration**: Apache Airflow
+- **Dashboard**: Streamlit + Plotly
+- **NLP**: OpenAI GPT → HiveQL
+- **Proxy**: Nginx (HTTPS)
 
 ## Project Structure
 
 ```
-├── airflow/                 # Airflow configuration and DAGs
-│   ├── dags/               # Workflow definitions
-│   └── Dockerfile.airflow  # Airflow container setup
-├── data/                   # Sample financial datasets
-├── jobs/                   # Data processing jobs
-├── docker-compose.yaml     # Multi-container orchestration
-├── Dockerfile.spark        # Spark container setup
-├── hive-site.xml          # Hive configuration
-└── *.py                   # Python APIs and tests
+HADOOP_NEW/
+├── airflow/
+│   ├── dags/               # Airflow DAGs
+│   └── Dockerfile.airflow
+├── dashboard/
+│   ├── components/         # Streamlit UI components
+│   ├── services/           # Hive + GPT integration
+│   ├── utils/              # History, helpers
+│   ├── app.py              # Entry point
+│   ├── auth.py             # Authentication
+│   └── config.py           # Table schema, category mapping
+├── jobs/
+│   └── finance_itsc_pipeline.py  # Spark ETL + Data Quality
+├── tests/                  # Unit tests (pytest)
+├── certs/                  # SSL certificates (ไม่ commit)
+├── data/                   # Raw data files (ไม่ commit)
+├── docker-compose.yaml
+├── nginx.conf
+└── .env                    # ไม่ commit — ดู .env.example
 ```
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.8+
-- Git
+- Docker + Docker Compose
+- OpenAI API Key
+- Gmail App Password (สำหรับ email alerts)
 
-### Quick Start
+## Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/hadoop-pipeline.git
-   cd hadoop-pipeline
-   ```
+**1. Clone และตั้งค่า environment**
+```bash
+git clone <repo-url>
+cd HADOOP_NEW
+cp .env.example .env
+# แก้ไข .env ใส่ค่าจริง
+```
 
-2. **Start the services**
-   ```bash
-   docker-compose up -d
-   ```
+**2. สร้าง SSL Certificate**
+```bash
+# Windows (Git Bash)
+bash generate_cert.sh
 
-3. **Access the services**
-   - Airflow UI: http://localhost:8080
-   - Hadoop NameNode: http://localhost:9870
-   - Hive Metastore: Available on port 9083
+# Linux/Mac
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout certs/server.key \
+    -out certs/server.crt \
+    -subj "/C=TH/ST=ChiangMai/O=ITSC-CMU/CN=localhost"
+```
 
-### Running Data Pipeline
+**3. สร้าง config.py จาก example**
+```bash
+cp dashboard/config.py.example dashboard/config.py
+# แก้ไข config.py ตามต้องการ
+```
 
-The main data pipeline is orchestrated through Airflow:
+**4. รัน Docker Compose**
+```bash
+docker compose up -d
+```
 
-1. Access Airflow UI at http://localhost:8080
-2. Enable the `hadoop_dag` DAG
-3. Monitor pipeline execution and logs
+**5. ตั้งค่า Airflow**
+```bash
+# เข้า Airflow UI: http://localhost:8088
+# Admin → Variables → เพิ่ม:
+#   Key: alert_email
+#   Value: your-email@gmail.com
+```
 
-## File Descriptions
+**6. Upload ข้อมูลเข้า HDFS**
+```bash
+# สร้าง directory structure
+docker exec namenode hdfs dfs -mkdir -p /datalake/raw/finance-itsc/year=2024
 
-- `hive_hdfs_api.py`: Python interface for HDFS operations
-- `hive_test.py`: Hive integration tests
-- `jobs/finance_pipeline.py`: Main data processing pipeline
-- `hadoop-hive.env`: Environment variables for services
-- `docker-compose.yaml`: Service orchestration configuration
+# Upload CSV
+docker exec -i namenode hdfs dfs -put /data/finance_itsc_2024.csv \
+    /datalake/raw/finance-itsc/year=2024/
+```
 
-## Data Flow
+## Services
 
-1. **Ingestion**: Raw financial data loaded into HDFS
-2. **Processing**: Spark jobs transform and analyze data
-3. **Storage**: Processed data stored in Hive tables
-4. **Orchestration**: Airflow manages the entire workflow
-5. **Monitoring**: Real-time pipeline monitoring via Airflow UI
+| Service | URL | หมายเหตุ |
+|---------|-----|---------|
+| Dashboard | https://localhost | หน้าหลัก |
+| Airflow | http://localhost:8088 | Pipeline management |
+| Spark Master | http://localhost:8080 | หรือ https://localhost/spark/ |
+| HDFS NameNode | http://localhost:9870 | |
+| Hive Server | localhost:10000 | JDBC |
 
-## Development
+## ETL Pipeline
 
-### Local Development Setup
+Pipeline รันอัตโนมัติทุก 5 นาที ผ่าน Airflow DAG `finance_etl_pipeline`
 
-1. **Create Python virtual environment**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
+**Flow:**
+```
+1. ตรวจ HDFS หาไฟล์ใหม่ (ไม่มี .done marker)
+2. Data Quality checks (schema, null, date format, total amount)
+3. ถ้าผ่าน → load เข้า Hive Wide table → สร้าง .done
+4. ถ้าไม่ผ่าน → สร้าง .failed → ส่ง email alert
+5. แปลง Wide → Long format
+```
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt  # Create this file with your dependencies
-   ```
+**Marker files:**
+- `filename.csv.done` — processed สำเร็จ
+- `filename.csv.failed` — Data Quality failed (ต้องแก้ไขก่อน retry)
 
-3. **Run tests**
-   ```bash
-   python hive_test.py
-   python hive_hdfs_api_test.py
-   ```
+## Data Quality Checks
 
-## Contributing
+| Check | ระดับ | รายละเอียด |
+|-------|-------|-----------|
+| Schema | Fatal | Column ครบ 32 อัน |
+| Null Values | Fatal | date, details ห้าม null |
+| Date Format | Fatal | ต้องมี all-year-budget, total spent, remaining |
+| Total Amount | Warning | total_amount ≈ sum ทุก column (±1%) |
+| Remaining | Warning | remaining ต้องลดหลั่นทุกเดือน |
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## Running Tests
 
-## License
+```bash
+pytest tests/ -v
+```
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## Troubleshooting
 
-## Support
+**Spark ใช้ Python ผิด version**
+```bash
+# ตรวจสอบ PYSPARK_PYTHON ใน docker-compose.yaml
+- PYSPARK_PYTHON=python3
+- PYSPARK_DRIVER_PYTHON=python3
+```
 
-For questions and support, please open an issue on GitHub.
+**Hive reserved keyword error**
+```
+Pipeline จะ auto-fix `date` → `\`date\`` อัตโนมัติ
+```
+
+**HDFS ไม่ขึ้น**
+```bash
+docker compose restart namenode datanode
+```
+
+**Dashboard ไม่อัพเดทหลังแก้โค้ด**
+```bash
+docker compose restart streamlit-dashboard
+```
