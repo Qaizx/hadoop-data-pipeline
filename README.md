@@ -1,4 +1,4 @@
-![CI](https://github.com/Ronnagon-Phukahuta/hadoop-data-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)
+[![CI](https://github.com/Qaizx/hadoop-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/Qaizx/hadoop-data-pipeline/actions/workflows/ci.yml)
 
 # Finance ITSC Dashboard
 
