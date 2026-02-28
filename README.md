@@ -1,3 +1,5 @@
+![CI](https://github.com/Ronnagon-Phukahuta/hadoop-data-pipeline/actions/workflows/ci.yml/badge.svg)
+
 # Finance ITSC Dashboard
 
 ระบบ Data Lake และ Dashboard สำหรับวิเคราะห์งบประมาณ ITSC มหาวิทยาลัยเชียงใหม่
@@ -5,9 +7,64 @@
 ## Architecture
 
 ```
-Excel/CSV → HDFS (Raw) → Spark ETL → Hive (Staging/Curated) → Streamlit Dashboard
-                                                                      ↑
-                                                               GPT (NLP Query)
+flowchart TD
+    subgraph Input
+        A[📊 Excel / CSV]
+        B[🤖 GPT\nColumn Fixer]
+    end
+
+    subgraph HDFS["HDFS Data Lake"]
+        C[📁 Raw Zone\n/datalake/raw]
+        D[📁 Staging Zone\n/datalake/staging]
+        E[📁 Curated Zone\n/datalake/curated]
+    end
+
+    subgraph ETL["ETL Layer (PySpark)"]
+        F[⚡ Spark Job\nfinance_itsc_pipeline.py]
+        G{Data Quality\nChecks}
+        H[✅ .done marker]
+        I[❌ .failed marker]
+        J[📧 Email Alert]
+    end
+
+    subgraph Orchestration
+        K[🌀 Airflow DAG\nevery 5 min]
+    end
+
+    subgraph Serving["Serving Layer (Hive)"]
+        L[(🐝 Hive\nWide Table)]
+        M[(🐝 Hive\nLong Table)]
+    end
+
+    subgraph Dashboard["Dashboard (Streamlit)"]
+        N[📈 Charts\nPlotly]
+        O[💬 NLP Query\nThai → HiveQL]
+        P[🔐 Auth]
+    end
+
+    subgraph Infra
+        Q[🔒 Nginx\nHTTPS Proxy]
+        R[🐳 Docker Compose]
+    end
+
+    A --> B --> C
+    K --> F
+    C --> F
+    F --> G
+    G -->|Pass| H
+    G -->|Fail| I --> J
+    H --> L
+    L --> M
+    L --> N
+    L --> O
+    O -->|GPT| O
+    N --> Q
+    O --> Q
+    P --> Q
+    R -.->|runs| HDFS
+    R -.->|runs| ETL
+    R -.->|runs| Dashboard
+    R -.->|runs| Orchestration
 ```
 
 **Stack**
