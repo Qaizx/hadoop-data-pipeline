@@ -24,7 +24,7 @@ def send_email_alert(subject: str, body: str):
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.sendmail(smtp_user, smtp_user, msg.as_string())
-        print(f"   📧 Alert email sent")
+        print("   📧 Alert email sent")
     except Exception as e:
         print(f"   ⚠️  Email failed: {e}")
 

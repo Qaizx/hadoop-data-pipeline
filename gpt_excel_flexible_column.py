@@ -217,7 +217,7 @@ def convert_excel(excel_path: str, sheet_name: str) -> pd.DataFrame:
     if thai_values:
         print(f"\n🤖 GPT กำลังแปลงข้อมูล {len(thai_values)} รายการ...")
         data_mapping = get_data_mapping_from_gpt(list(thai_values))
-        print(f"   ✅ แปลงข้อมูลเรียบร้อย")
+        print("   ✅ แปลงข้อมูลเรียบร้อย")
         
         for col in df.columns:
             df[col] = df[col].map(lambda x: data_mapping.get(x, x) if isinstance(x, str) else x)

@@ -73,7 +73,7 @@ else:
             hdfs_touch(sc, f + ".done")
         print(f"   ✅ year={year} written")
 
-print(f"\n✅ Part 1 done!")
+print("\n✅ Part 1 done!")
 
 
 # ============================================================
