@@ -147,14 +147,11 @@ jobs:
       - name: Validate DAGs
         run: |
           export AIRFLOW_HOME=$(mktemp -d)
-          airflow db migrate --yes
-          python -m pytest --co -q airflow/dags/ || \
-          airflow dags list-import-errors | grep -q "No import errors" || \
+          airflow db init
           python -c "
-          import os, sys
+          import sys
           from airflow.models import DagBag
-          dag_folder = 'airflow/dags'
-          dagbag = DagBag(dag_folder=dag_folder, include_examples=False)
+          dagbag = DagBag(dag_folder='airflow/dags', include_examples=False)
           if dagbag.import_errors:
               print('DAG import errors:')
               for f, e in dagbag.import_errors.items():
