@@ -4,6 +4,10 @@ from typing import List, Tuple
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, abs as spark_abs
 
+from logger import get_logger
+
+log = get_logger(__name__)
+
 EXPECTED_COLUMNS = [
     "date", "total_amount", "details",
     "general_fund_admin_wifi_grant", "compensation_budget", "expense_budget",
@@ -99,7 +103,9 @@ def check_remaining_decreasing(df: DataFrame) -> Tuple[bool, List[str]]:
 
 
 def run_quality_checks(df: DataFrame, filepath: str) -> Tuple[bool, str]:
-    print(f"\n🔍 Data Quality: {filepath.split('/')[-1]}")
+    filename = filepath.split("/")[-1]
+    log.info("Data quality check started", file=filename)
+
     all_errors, all_warnings = [], []
     passed = True
 
@@ -113,18 +119,21 @@ def run_quality_checks(df: DataFrame, filepath: str) -> Tuple[bool, str]:
 
     for name, (ok, errors) in checks:
         if ok:
-            print(f"   ✅ {name}: passed")
+            log.info("Check passed", file=filename, check=name)
         else:
             has_fatal = any("❌" in e for e in errors)
             if has_fatal:
                 passed = False
-                print(f"   ❌ {name}: FAILED")
+                log.error("Check failed", file=filename, check=name, errors=errors)
                 all_errors.extend(errors)
             else:
-                print(f"   ⚠️  {name}: warning")
+                log.warning("Check warning", file=filename, check=name, warnings=errors)
                 all_warnings.extend(errors)
-        for e in errors:
-            print(f"      {e}")
+
+    if passed:
+        log.info("All quality checks passed", file=filename)
+    else:
+        log.error("Quality checks failed", file=filename, error_count=len(all_errors))
 
     report = f"File: {filepath}\n\n"
     if all_errors:
