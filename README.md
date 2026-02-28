@@ -1,4 +1,4 @@
-![CI](https://github.com/Ronnagon-Phukahuta/hadoop-data-pipeline/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Ronnagon-Phukahuta/hadoop-data-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)
 
 # Finance ITSC Dashboard
 
@@ -6,7 +6,7 @@
 
 ## Architecture
 
-```
+```mermaid
 flowchart TD
     subgraph Input
         A[📊 Excel / CSV]
