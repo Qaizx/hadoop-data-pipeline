@@ -10,40 +10,40 @@
 flowchart TD
     subgraph Input
         A[📊 Excel / CSV]
-        B[🤖 GPT\nColumn Fixer]
+        B[🤖 GPT <br/>Column Fixer]
     end
 
     subgraph HDFS["HDFS Data Lake"]
-        C[📁 Raw Zone\n/datalake/raw]
-        D[📁 Staging Zone\n/datalake/staging]
-        E[📁 Curated Zone\n/datalake/curated]
+        C[📁 Raw Zone<br/>/datalake/raw]
+        D[📁 Staging Zone<br/>/datalake/staging]
+        E[📁 Curated Zone<br/>/datalake/curated]
     end
 
     subgraph ETL["ETL Layer (PySpark)"]
-        F[⚡ Spark Job\nfinance_itsc_pipeline.py]
-        G{Data Quality\nChecks}
+        F[⚡ Spark Job<br/>finance_itsc_pipeline.py]
+        G{Data Quality<br/>Checks}
         H[✅ .done marker]
         I[❌ .failed marker]
         J[📧 Email Alert]
     end
 
     subgraph Orchestration
-        K[🌀 Airflow DAG\nevery 5 min]
+        K[🌀 Airflow DAG <br/> every 5 min]
     end
 
     subgraph Serving["Serving Layer (Hive)"]
-        L[(🐝 Hive\nWide Table)]
-        M[(🐝 Hive\nLong Table)]
+        L[(🐝 Hive<br/>Wide Table)]
+        M[(🐝 Hive<br/>Long Table)]
     end
 
     subgraph Dashboard["Dashboard (Streamlit)"]
-        N[📈 Charts\nPlotly]
-        O[💬 NLP Query\nThai → HiveQL]
+        N[📈 Charts<br/>Plotly]
+        O[💬 NLP Query<br/>Thai → HiveQL]
         P[🔐 Auth]
     end
 
     subgraph Infra
-        Q[🔒 Nginx\nHTTPS Proxy]
+        Q[🔒 Nginx<br/>HTTPS Proxy]
         R[🐳 Docker Compose]
     end
 
