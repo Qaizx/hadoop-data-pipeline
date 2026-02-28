@@ -58,7 +58,7 @@ def ask_gpt_for_sql(user_question: str) -> str:
     # ลบ markdown code block
     if sql.startswith("```"):
         lines = sql.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         sql = "\n".join(lines).strip()
     
     # แปลง smart quotes เป็น straight quotes

@@ -57,7 +57,7 @@ def _clean_sql(sql: str) -> str:
     """ทำความสะอาด SQL จาก GPT output"""
     if sql.startswith("```"):
         lines = sql.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         sql = "\n".join(lines).strip()
     sql = sql.replace("\u2018", "'").replace("\u2019", "'")
     sql = sql.replace("\u201c", '"').replace("\u201d", '"')

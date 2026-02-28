@@ -37,7 +37,7 @@ def get_column_mapping_from_gpt(columns: list) -> dict:
     result = response.choices[0].message.content.strip()
     if result.startswith("```"):
         lines = result.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         result = "\n".join(lines).strip()
     
     return json.loads(result)
@@ -80,7 +80,7 @@ def get_data_mapping_from_gpt(values: list) -> dict:
     result = response.choices[0].message.content.strip()
     if result.startswith("```"):
         lines = result.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         result = "\n".join(lines).strip()
     
     return json.loads(result)
@@ -126,7 +126,7 @@ def analyze_dataframe_structure(df: pd.DataFrame) -> dict:
     result = response.choices[0].message.content.strip()
     if result.startswith("```"):
         lines = result.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         result = "\n".join(lines).strip()
     
     return json.loads(result)
