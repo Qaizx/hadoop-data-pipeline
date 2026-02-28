@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+
+jobs:
+  # ─────────────────────────────────────────
+  # 1. Lint
+  # ─────────────────────────────────────────
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff
+        run: ruff check . --output-format=github
+
+  # ─────────────────────────────────────────
+  # 2. Test
+  # ─────────────────────────────────────────
+  test:
+    name: Test (pytest + coverage)
+    runs-on: ubuntu-latest
+    needs: lint
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HIVE_HOST: "localhost"
+      HIVE_PORT: "10000"
+      HIVE_DATABASE: "finance_itsc"
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-mock
+
+      - name: Run pytest
+        run: |
+          pytest tests/ -v \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            -p no:warnings
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # ─────────────────────────────────────────
+  # 3. Docker build (Spark)
+  # ─────────────────────────────────────────
+  docker-spark:
+    name: Docker Build (Spark)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Spark image
+        run: |
+          docker build \
+            -f Dockerfile.spark \
+            -t hadoop-data-pipeline/spark:ci \
+            .
+
+  # ─────────────────────────────────────────
+  # 4. Docker build (Streamlit)
+  # ─────────────────────────────────────────
+  docker-streamlit:
+    name: Docker Build (Streamlit)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Streamlit image
+        run: |
+          docker build \
+            -f Dockerfile.streamlit \
+            -t hadoop-data-pipeline/streamlit:ci \
+            .
+
+  # ─────────────────────────────────────────
+  # 5. Docker Compose validate
+  # ─────────────────────────────────────────
+  docker-compose-validate:
+    name: Docker Compose Validate
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yaml
+        run: docker compose config --quiet
+
+  # ─────────────────────────────────────────
+  # 6. Airflow DAG validate
+  # ─────────────────────────────────────────
+  airflow-dag-validate:
+    name: Airflow DAG Validate
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Airflow
+        run: |
+          pip install apache-airflow==2.9.0 \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.0/constraints-3.10.txt"
+
+      - name: Validate DAGs
+        run: |
+          export AIRFLOW_HOME=$(mktemp -d)
+          airflow db migrate --yes
+          python -m pytest --co -q airflow/dags/ || \
+          airflow dags list-import-errors | grep -q "No import errors" || \
+          python -c "
+          import os, sys
+          from airflow.models import DagBag
+          dag_folder = 'airflow/dags'
+          dagbag = DagBag(dag_folder=dag_folder, include_examples=False)
+          if dagbag.import_errors:
+              print('DAG import errors:')
+              for f, e in dagbag.import_errors.items():
+                  print(f'  {f}: {e}')
+              sys.exit(1)
+          print(f'All DAGs OK: {list(dagbag.dags.keys())}')
+          "
