@@ -1,5 +1,4 @@
 # tests/test_etl.py
-import pytest
 import re
 from typing import Optional
 

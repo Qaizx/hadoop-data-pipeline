@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import input_file_name, regexp_extract, col
-import re
 
 spark = SparkSession.builder \
     .appName("Finance ETL Pipeline") \

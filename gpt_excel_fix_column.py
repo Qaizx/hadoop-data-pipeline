@@ -67,13 +67,11 @@ def ask_gpt_for_conversion_code(excel_structure: str, sheet_name: str) -> str:
     # ลบ markdown code block
     if code.startswith("```"):
         lines = code.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         code = "\n".join(lines).strip()
     
     return code
 
-import pandas as pd
-from openpyxl import load_workbook
 
 def convert_excel(excel_path: str, sheet_name: str) -> pd.DataFrame:
     """แปลง Excel ที่มี merged cells เป็น DataFrame"""

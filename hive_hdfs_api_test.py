@@ -1,8 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-import subprocess
-import shutil
-import os
-from typing import List
+from fastapi import FastAPI
 import requests
 
 NAMENODE = "http://localhost:9870"  # webhdfs port

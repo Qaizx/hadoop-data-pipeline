@@ -1,5 +1,4 @@
 # tests/test_category_mapping.py
-import pytest
 
 # Category mapping เดียวกับใน config.py
 EXPECTED_MAPPING = {

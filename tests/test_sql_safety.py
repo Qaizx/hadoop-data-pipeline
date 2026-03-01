@@ -1,5 +1,4 @@
 # tests/test_sql_safety.py
-import pytest
 import re
 
 

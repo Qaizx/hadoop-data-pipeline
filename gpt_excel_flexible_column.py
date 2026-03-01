@@ -37,7 +37,7 @@ def get_column_mapping_from_gpt(columns: list) -> dict:
     result = response.choices[0].message.content.strip()
     if result.startswith("```"):
         lines = result.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         result = "\n".join(lines).strip()
     
     return json.loads(result)
@@ -80,7 +80,7 @@ def get_data_mapping_from_gpt(values: list) -> dict:
     result = response.choices[0].message.content.strip()
     if result.startswith("```"):
         lines = result.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         result = "\n".join(lines).strip()
     
     return json.loads(result)
@@ -126,7 +126,7 @@ def analyze_dataframe_structure(df: pd.DataFrame) -> dict:
     result = response.choices[0].message.content.strip()
     if result.startswith("```"):
         lines = result.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
+        lines = [line for line in lines if not line.startswith("```")]
         result = "\n".join(lines).strip()
     
     return json.loads(result)
@@ -217,7 +217,7 @@ def convert_excel(excel_path: str, sheet_name: str) -> pd.DataFrame:
     if thai_values:
         print(f"\n🤖 GPT กำลังแปลงข้อมูล {len(thai_values)} รายการ...")
         data_mapping = get_data_mapping_from_gpt(list(thai_values))
-        print(f"   ✅ แปลงข้อมูลเรียบร้อย")
+        print("   ✅ แปลงข้อมูลเรียบร้อย")
         
         for col in df.columns:
             df[col] = df[col].map(lambda x: data_mapping.get(x, x) if isinstance(x, str) else x)
