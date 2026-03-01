@@ -3,12 +3,15 @@ Structured logger สำหรับ Finance ITSC Pipeline
 ใช้ loguru — output ไป console (plain) และ file (JSON)
 """
 
+import os
 import sys
 from pathlib import Path
 from loguru import logger
 
-LOG_DIR = Path("/jobs/logs")
-LOG_DIR.mkdir(exist_ok=True)
+# ใน container ใช้ /jobs/logs, รันใน local/test ใช้ logs/ ใน cwd
+_default_log_dir = "/jobs/logs" if os.path.exists("/jobs") else "logs"
+LOG_DIR = Path(os.getenv("LOG_DIR", _default_log_dir))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_logger(name: str):
@@ -48,10 +51,10 @@ def setup_logger(name: str = "app"):
         LOG_DIR / f"{name}.log",
         format="{time} | {level} | {extra[module]} | {message} | {extra}",
         level="INFO",
-        rotation="10 MB",   # rotate ทุก 10 MB
-        retention="30 days", # เก็บ 30 วัน
-        compression="zip",   # compress ไฟล์เก่า
-        serialize=True,      # output เป็น JSON
+        rotation="10 MB",
+        retention="30 days",
+        compression="zip",
+        serialize=True,
         encoding="utf-8",
     )
 

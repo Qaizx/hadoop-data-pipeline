@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# jobs/finance_itsc_pipeline.py
+# jobs/finance_itsc_pipeline_test_quality.py
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, expr
 from typing import List, Dict
@@ -7,6 +7,7 @@ from typing import List, Dict
 from data_quality import run_quality_checks
 from utils.hdfs import hdfs_ls_recursive, hdfs_touch, extract_year_from_path
 from utils.alerts import send_quality_alert
+from utils.retry import atomic_write_table, with_retry
 from logger import setup_logger
 
 log = setup_logger("etl")
@@ -32,7 +33,9 @@ database_name = "default"
 # ============================================================
 log.info("PART 1 started: Raw -> Staging (Wide) — Incremental")
 
-all_files    = hdfs_ls_recursive(sc, raw_path)
+# ── Step 1: Scan HDFS ────────────────────────────────────────
+all_files = with_retry(hdfs_ls_recursive, sc, raw_path, label="scan HDFS")
+
 csv_files    = [f for f in all_files if f.endswith(".csv")]
 done_files   = set(f for f in all_files if f.endswith(".done"))
 failed_files = set(f for f in all_files if f.endswith(".failed"))
@@ -68,16 +71,34 @@ else:
     for year, files in sorted(pending_by_year.items()):
         log.info("Processing year", year=year, files=len(files))
 
-        df = spark.read.option("header", "true").option("inferSchema", "true").csv(files)
-        df = df.withColumn("year", lit(year).cast("int"))
-        for c in df.columns:
-            if c in ["date", "details"]:
-                df = df.withColumn(c, col(c).cast("string"))
-            elif c != "year":
-                df = df.withColumn(c, col(c).cast("double"))
+        # ── Step 2: Read CSV ─────────────────────────────────
+        try:
+            def _read_csv():
+                df = spark.read.option("header", "true").option("inferSchema", "true").csv(files)
+                df = df.withColumn("year", lit(year).cast("int"))
+                for c in df.columns:
+                    if c in ["date", "details"]:
+                        df = df.withColumn(c, col(c).cast("string"))
+                    elif c != "year":
+                        df = df.withColumn(c, col(c).cast("double"))
+                return df
 
-        # ===== DATA QUALITY =====
-        dq_passed, dq_report = run_quality_checks(df, files[0])
+            df = with_retry(_read_csv, label=f"read CSV year={year}")
+        except Exception as e:
+            log.error("Failed to read CSV — skipping year", year=year, error=str(e))
+            del pending_by_year[year]
+            continue
+
+        # ── Step 3: Data Quality ──────────────────────────────
+        try:
+            dq_passed, dq_report = with_retry(
+                run_quality_checks, df, files[0],
+                label=f"data quality year={year}"
+            )
+        except Exception as e:
+            log.error("Data quality check error — skipping year", year=year, error=str(e))
+            del pending_by_year[year]
+            continue
 
         if not dq_passed:
             log.error("DQ failed — skipping load", year=year)
@@ -87,14 +108,23 @@ else:
             del pending_by_year[year]
             continue
 
-        df.write.mode("overwrite").partitionBy("year") \
-            .option("path", staging_path) \
-            .saveAsTable(f"{database_name}.{wide_table}")
-
-        for f in files:
-            hdfs_touch(sc, f + ".done")
-
-        log.info("Year written to staging", year=year)
+        # ── Step 4: Atomic Write ──────────────────────────────
+        try:
+            atomic_write_table(
+                df=df,
+                table_path=staging_path,
+                table_name=wide_table,
+                database=database_name,
+                partition_col="year",
+                partition_value=year,
+            )
+            for f in files:
+                with_retry(hdfs_touch, sc, f + ".done", label=f"touch .done {f}")
+            log.info("Year written to staging", year=year)
+        except Exception as e:
+            log.error("Failed to write staging after retries — skipping", year=year, error=str(e))
+            del pending_by_year[year]
+            continue
 
 log.info("PART 1 completed")
 
@@ -116,25 +146,48 @@ else:
     for year in years_to_update:
         log.info("Converting wide -> long", year=year)
 
-        df_wide = spark.sql(f"SELECT * FROM {database_name}.{wide_table} WHERE year = {year}")
-        df_wide = df_wide.filter(
-            col("date").rlike(r"^\d{4}-\d{2}$") | (col("date") == "all-year-budget")
-        )
+        # ── Step 5: Read Wide ─────────────────────────────────
+        try:
+            def _read_wide():
+                df = spark.sql(f"SELECT * FROM {database_name}.{wide_table} WHERE year = {year}")
+                return df.filter(
+                    col("date").rlike(r"^\d{4}-\d{2}$") | (col("date") == "all-year-budget")
+                )
 
-        amount_columns = [c for c in df_wide.columns if c not in id_columns + exclude_columns]
-        stack_expr = ", ".join([f"'{c}', `{c}`" for c in amount_columns])
+            df_wide = with_retry(_read_wide, label=f"read wide year={year}")
+        except Exception as e:
+            log.error("Failed to read wide table — skipping year", year=year, error=str(e))
+            continue
 
-        df_long = df_wide.select(
-            *id_columns,
-            expr(f"stack({len(amount_columns)}, {stack_expr}) as (category, amount)")
-        ).filter(col("amount").isNotNull())
+        # ── Step 6: Transform Wide -> Long ────────────────────
+        try:
+            def _transform():
+                amount_cols = [c for c in df_wide.columns if c not in id_columns + exclude_columns]
+                stack_expr = ", ".join([f"'{c}', `{c}`" for c in amount_cols])
+                return df_wide.select(
+                    *id_columns,
+                    expr(f"stack({len(amount_cols)}, {stack_expr}) as (category, amount)")
+                ).filter(col("amount").isNotNull())
+
+            df_long = with_retry(_transform, label=f"transform wide->long year={year}")
+        except Exception as e:
+            log.error("Failed to transform wide->long — skipping year", year=year, error=str(e))
+            continue
 
         long_rows = df_long.count()
 
-        df_long.write.mode("overwrite").partitionBy("year") \
-            .option("path", curated_path) \
-            .saveAsTable(f"{database_name}.{long_table}")
-
-        log.info("Long table updated", year=year, rows=long_rows)
+        # ── Step 7: Atomic Write ──────────────────────────────
+        try:
+            atomic_write_table(
+                df=df_long,
+                table_path=curated_path,
+                table_name=long_table,
+                database=database_name,
+                partition_col="year",
+                partition_value=year,
+            )
+            log.info("Long table updated", year=year, rows=long_rows)
+        except Exception as e:
+            log.error("Failed to write curated after retries", year=year, error=str(e))
 
 log.info("ETL Pipeline completed")
