@@ -87,7 +87,8 @@ def atomic_write_table(
         - crash step 3 → มี _old เป็น backup, rollback ได้
         - crash step 4 → partition ใหม่ใช้งานได้แล้ว แค่ _old ค้างอยู่
     """
-    spark = df.sparkSession
+    from pyspark.sql import SparkSession
+    spark = SparkSession.builder.getOrCreate()
     sc = spark.sparkContext
 
     # path ของ partition จริงๆ เช่น /datalake/.../year=2024

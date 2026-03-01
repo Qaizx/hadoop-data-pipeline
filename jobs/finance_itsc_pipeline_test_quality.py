@@ -8,6 +8,8 @@ from data_quality import run_quality_checks
 from utils.hdfs import hdfs_ls_recursive, hdfs_touch, extract_year_from_path
 from utils.alerts import send_quality_alert
 from utils.retry import atomic_write_table, with_retry
+from utils.versioning import create_version, cleanup_old_versions
+from data_quality import EXPECTED_COLUMNS
 from logger import setup_logger
 
 log = setup_logger("etl")
@@ -120,6 +122,11 @@ else:
             )
             for f in files:
                 with_retry(hdfs_touch, sc, f + ".done", label=f"touch .done {f}")
+
+            # ===== VERSIONING =====
+            create_version(sc, df, files[0], year)
+            cleanup_old_versions(sc, year)
+
             log.info("Year written to staging", year=year)
         except Exception as e:
             log.error("Failed to write staging after retries — skipping", year=year, error=str(e))
