@@ -9,7 +9,6 @@ from utils.hdfs import hdfs_ls_recursive, hdfs_touch, extract_year_from_path
 from utils.alerts import send_quality_alert
 from utils.retry import atomic_write_table, with_retry
 from utils.versioning import create_version, cleanup_old_versions
-from data_quality import EXPECTED_COLUMNS
 from logger import setup_logger
 
 log = setup_logger("etl")

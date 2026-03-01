@@ -22,7 +22,6 @@ flowchart TD
 
     subgraph ETL["ETL Layer (PySpark)"]
         F[⚡ Spark Job<br/>finance_itsc_pipeline.py]
-        SE{Schema Evolution<br/>Check}
         G{Data Quality<br/>Checks}
         AW[🔒 Atomic Write<br/>Swap Pattern]
         H[✅ .done marker]
@@ -53,9 +52,7 @@ flowchart TD
     A --> B --> C
     K --> F
     C --> F
-    F --> SE
-    SE -->|Warning| G
-    SE -->|Warning| J
+    F --> G
     G -->|Pass| AW
     G -->|Fail| I --> J
     AW --> H
@@ -104,7 +101,6 @@ HADOOP_NEW/
 │       ├── hdfs.py                # HDFS helpers
 │       ├── alerts.py              # Email alerts
 │       ├── retry.py               # Retry + Atomic write
-│       ├── schema_evolution.py    # Schema change detection
 │       └── versioning.py          # Data versioning / rollback
 ├── tests/                  # Unit tests (pytest)
 ├── docs/
@@ -208,13 +204,9 @@ flowchart TD
     C --> C1{สำเร็จ?}
     C1 -->|Fail| C2[Retry<br/>5→10→20 วิ]
     C2 -->|หมด retry| FAIL1([❌ Skip ปีนี้])
-    C2 -->|สำเร็จ| D
+    C2 -->|สำเร็จ| E
 
-    C1 -->|Pass| D[Schema Evolution<br/>ตรวจ column เพิ่ม/หาย]
-    D -->|Column เพิ่ม/หาย| D1[Fill null +<br/>📧 Warning Alert]
-    D1 --> E
-    D -->|Schema ปกติ| E
-
+    C1 -->|Pass| E
     E[Data Quality Checks<br/>schema, null, date, total]
     E --> E1{ผ่าน?}
     E1 -->|Fail| E2[สร้าง .failed<br/>📧 Alert]
@@ -251,16 +243,6 @@ flowchart TD
 | Date Format | Fatal | ต้องมี all-year-budget, total spent, remaining |
 | Total Amount | Warning | total_amount ≈ sum ทุก column (±1%) |
 | Remaining | Warning | remaining ต้องลดหลั่งทุกเดือน |
-
-## Schema Evolution
-
-Pipeline รองรับการเปลี่ยนแปลง schema ของ Excel โดยอัตโนมัติ
-
-| กรณี | พฤติกรรม |
-|------|---------|
-| Column เพิ่มมา | รับเข้าได้ + warning alert |
-| Column หายไป | Fill null + warning alert |
-| Column rename (fuzzy match) | แจ้งเตือนให้ตรวจสอบ |
 
 ## Atomic Write & Retry
 

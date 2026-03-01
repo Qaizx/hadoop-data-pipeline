@@ -23,7 +23,7 @@ Data Versioning สำหรับ Finance ITSC Pipeline
 import json
 import hashlib
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from pyspark.sql import DataFrame
 
 from logger import get_logger
