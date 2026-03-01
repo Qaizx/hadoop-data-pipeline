@@ -98,6 +98,9 @@ else:
             )
         except Exception as e:
             log.error("Data quality check error — skipping year", year=year, error=str(e))
+            for f in files:
+                hdfs_touch(sc, f + ".failed")
+            send_quality_alert(files[0], dq_report)
             del pending_by_year[year]
             continue
 
